@@ -1,0 +1,155 @@
+sudo nano /etc/apt/apt.conf.d/20auto-upgrades
+APT::Periodic::Update-Package-Lists "0";
+APT::Periodic::Unattended-Upgrade "0";
+**********************************************************************
+sudo apt-get remove  containerd runc
+apt install  docker.io
+systemctl start docker
+systemctl enable docker
+apt install docker-compose
+**********************************************************************
+sudo swapoff -a
+swapoff -a; sed -i '/swap/d' /etc/fstab
+**********************************************************************
+sudo ufw disable
+**********************************************************************
+sudo setenforce 0
+
+/etc/selinux/config
+FROM:
+SELINUX=enforcing
+TO:
+SELINUX=disabled
+
+Reboot your system
+**********************************************************************
+sudo modprobe overlay
+sudo modprobe br_netfilter
+**********************************************************************
+cat <<EOF | sudo tee /etc/modules-load.d/k8s.conf
+br_netfilter
+overlay
+EOF
+**********************************************************************
+# sysctl params required by setup, params persist across reboots
+cat <<EOF | sudo tee /etc/sysctl.d/k8s.conf
+net.bridge.bridge-nf-call-iptables  = 1
+net.bridge.bridge-nf-call-ip6tables = 1
+net.ipv4.ip_forward                 = 1
+EOF
+**********************************************************************
+sudo apt install apt-transport-https ca-certificates curl gnupg lsb-release
+====================================================================================
+##https://computingforgeeks.com/install-mirantis-cri-dockerd-as-docker-engine-shim-for-kubernetes/
+
+sudo apt install git wget curl
+
+VER=$(curl -s https://api.github.com/repos/Mirantis/cri-dockerd/releases/latest|grep tag_name | cut -d '"' -f 4|sed 's/v//g')
+echo $VER
+
+wget https://github.com/Mirantis/cri-dockerd/releases/download/v${VER}/cri-dockerd-${VER}.amd64.tgz
+tar xvf cri-dockerd-${VER}.amd64.tgz
+
+
+sudo mv cri-dockerd/cri-dockerd /usr/local/bin/
+
+wget https://raw.githubusercontent.com/Mirantis/cri-dockerd/master/packaging/systemd/cri-docker.service
+wget https://raw.githubusercontent.com/Mirantis/cri-dockerd/master/packaging/systemd/cri-docker.socket
+sudo mv cri-docker.socket cri-docker.service /etc/systemd/system/
+sudo sed -i -e 's,/usr/bin/cri-dockerd,/usr/local/bin/cri-dockerd,' /etc/systemd/system/cri-docker.service
+
+
+sudo systemctl daemon-reload
+sudo systemctl enable cri-docker.service
+sudo systemctl enable --now cri-docker.socket
+
+
+**********************************************************************kuberneties****************************************************************
+sudo apt-get update
+sudo apt-get install -y apt-transport-https ca-certificates curl
+
+sudo curl -fsSLo /usr/share/keyrings/kubernetes-archive-keyring.gpg https://packages.cloud.google.com/apt/doc/apt-key.gpg
+
+echo "deb [signed-by=/usr/share/keyrings/kubernetes-archive-keyring.gpg] https://apt.kubernetes.io/ kubernetes-xenial main" | sudo tee /etc/apt/sources.list.d/kubernetes.list
+
+====>>>>>   
+
+touch /etc/apt/apt.conf.d/99verify-peer.conf \
+&& echo >>/etc/apt/apt.conf.d/99verify-peer.conf "Acquire { https::Verify-Peer false }"
+
+<<<<<<==
+
+sudo apt-get update
+sudo apt-get install -qy kubelet=1.24.0-00 kubectl=1.24.0-00 kubeadm=1.24.0-00
+ 
+**********************************************************************
+!!!!!===>  sudo systemctl enable --now kubelet
+sudo systemctl daemon-reload
+
+sudo kubeadm config images pull --cri-socket /run/cri-dockerd.sock 
+is should be like:
+::::::::::::::::::::::::::::::::::::::::::::::::::
+  k8s.gcr.io/kube-controller-manager:v1.22.2 \
+  k8s.gcr.io/kube-scheduler:v1.22.2 \
+  k8s.gcr.io/kube-proxy:v1.22.2 \
+  k8s.gcr.io/pause:3.5 \
+  k8s.gcr.io/etcd:3.5.0-0 \
+  k8s.gcr.io/coredns:1.8.4; do
+:::::::::::::::::::::::::::::::::::::::::::::::::::
+<<<now  in  master and root sudo su - >>>
+echo 1 > /proc/sys/net/ipv4/ip_forward
+
+
+sudo kubeadm init  --apiserver-advertise-address=[localhostip]  --pod-network-cidr=10.244.0.0/16 --ignore-preflight-errors=all --cri-socket /run/cri-dockerd.sock
+
+**********************************************************************
+<<<now  in  reqular  user>>
+
+mkdir -p $HOME/.kube
+sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+sudo chown $(id -u):$(id -g) $HOME/.kube/config
+
+**********************************************************************
+
+FLUNNEL::::
+kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml
+::::::::::::::::::::::
+CALICO::::::::::::::::
+kubectl create -f https://projectcalico.docs.tigera.io/manifests/tigera-operator.yaml 
+kubectl create -f https://projectcalico.docs.tigera.io/manifests/custom-resources.yaml
+watch kubectl get pods -n calico-system
+kubectl taint nodes --all node-role.kubernetes.io/master-
+kubectl get nodes -o wide
+
+**********************************************************************
+kubectl get cs    ==>(component states)
+if it is not healthy::::::::::::::::::::::::::
+
+vi /etc/kubernetes/manifests/kube-controller-manager.yaml
+vi /etc/kubernetes/manifests/kube-scheduler.yaml
+then:::::
+#  - --port=0
+
+*********************************************************************
+kubeadm  token  create --print-join-command
+then  join other nodes.
+
+ mkdir -p $HOME/.kube
+ sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+ sudo chown $(id -u):$(id -g) $HOME/.kube/config
+
+Alternatively, if you are the root user, you can run:
+
+  export KUBECONFIG=/etc/kubernetes/admin.conf
+
+You should now deploy a pod network to the cluster.
+Run "kubectl apply -f [podnetwork].yaml" with one of the options listed at:
+  https://kubernetes.io/docs/concepts/cluster-administration/addons/
+
+Then you can join any number of worker nodes by running the following on each as root:
+
+kubeadm join 192.168.1.100:6443 --token agzi2b.taxwd2o9ho0815vn \
+        --discovery-token-ca-cert-hash sha256:963d7e9b81eb7271e0cce7921f6d30874e37b5e7f10442584e749540d1815ae0 --ignore-preflight-errors=all --cri-socket /run/cri-dockerd.soc
+
+*********************POINT ==> for joining to by cri Docker you should use this******************************
+kubeadm join 192.168.1.112:6443 --token z5ndhk.xft8idnbbafqoypa --discovery-token-ca-cert-hash sha256:5bbb8b9bfee5b5173d73ff6735593e1302b982ab9593abb72c3c75bf820f1204 --ignore-preflight-errors=all --cri-socket /run/cri-dockerd.sock
