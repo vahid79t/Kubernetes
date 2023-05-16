@@ -1,0 +1,74 @@
+/////////////////////////////////////////////////////////////////////////////////versions-installation
+
+velero:1.9  from             https://github.com/vmware-tanzu/velero
+minio:latestversion          docker pull minio/minio
+
+/////////////////////////////////////////////////////////////////////////////////
+
+velero is a backup solution which needed a bucket to save and restore backups in it.
+for bucket we use "minio.io" which is working with aws online and offline.
+it is better to install minio in another server and then connect it to velero.
+
+/////////////////////////////////////////////////////////////////////////////////<docker>
+
+#in docker ==> docker pull minio/minio
+#then:
+
+docker run -d \
+  -p 32200:9000 \
+  -p 9001:9001 \
+  --name minio1 \
+  -e "MINIO_ROOT_USER=minio" \
+  -e "MINIO_ROOT_PASSWORD=minio123" \
+  -v /mnt/data:/data \
+  minio/minio server /data --console-address ":9001"
+
+/////////////////////////////////////////////////////////////////////////////////<connec-to-minio>
+
+#open minio from browser and create bucket.
+create bucket <k8s-uat>
+
+/////////////////////////////////////////////////////////////////////////////////<kuber-velero client>
+
+#in kubernetes for installing velero client run below commands:
+
+wget latestversion-velero
+tar zxf velero
+mv velero /usr/local/bin
+velero version
+
+/////////////////////////////////////////////////////////////////////////////////<kuber-credentials>
+
+# vi credentials and then add the below :
+
+[default]
+aws_access_key_id = minio
+aws_secret_access_key = minio123
+
+/////////////////////////////////////////////////////////////////////////////////<kuber-velero server>
+
+#for installing velero we run below command and the result will be pods:
+#check it by kubectl get pods -A
+
+velero install \
+--provider aws \
+--plugins velero/velero-plugin-for-aws:v1.0.0 \
+--bucket k8s-uat \
+--secret-file ./credentials \
+--use-volume-snapshots=false \
+--use-restic \
+--backup-location-config \
+region=minio,s3ForcePathStyle="true",s3Url=http://192.168.1.124:9000
+
+/////////////////////////////////////////////////////////////////////////////////<commands>
+
+velero get backup
+velero get  backup-location
+velero backup describe <>
+velero backup create kube-system --include-namespaces kube-system
+velero restore create kube-system --from-backup kube-system
+velero get restore
+velero schedule get
+velero schedule create firstschedule --schedule="* * * * *" or "@every 1w" --include-namespaces <>
+velero.txt
+Displaying velero.txt.
