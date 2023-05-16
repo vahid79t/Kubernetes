@@ -1,0 +1,190 @@
+
+sudo swapoff -a
+swapoff -a; sed -i '/swap/d' /etc/fstab
+**********************************************************************
+sudo ufw disable
+**********************************************************************
+sudo setenforce 0
+
+/etc/selinux/config
+FROM:
+SELINUX=enforcing
+TO:
+SELINUX=disabled
+
+Reboot your system
+**********************************************************************
+sudo modprobe overlay
+sudo modprobe br_netfilter
+**********************************************************************
+cat <<EOF | sudo tee /etc/modules-load.d/k8s.conf
+br_netfilter
+overlay
+EOF
+**********************************************************************
+# sysctl params required by setup, params persist across reboots
+cat <<EOF | sudo tee /etc/sysctl.d/k8s.conf
+net.bridge.bridge-nf-call-iptables  = 1
+net.bridge.bridge-nf-call-ip6tables = 1
+net.ipv4.ip_forward                 = 1
+EOF
+**********************************************************************
+sudo apt install apt-transport-https ca-certificates curl gnupg lsb-release
+
+sudo apt-get remove docker docker-engine docker.io 
+====================================================================================
+containerd:
+installation
+then install kubelete::::
+
+wget https://github.com/containerd/containerd/releases/download/v1.6.2/containerd-1.6.2-linux-amd64.tar.gz
+sudo tar Czxvf /usr/local containerd-1.6.2-linux-amd64.tar.gz
+
+
+wget https://raw.githubusercontent.com/containerd/containerd/main/containerd.service
+sudo mv containerd.service /usr/lib/systemd/system/
+
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now containerd
+sudo systemctl status containerd
+
+Install runC:::::::::::::::
+
+
+wget https://github.com/opencontainers/runc/releases/download/v1.1.1/runc.amd64
+sudo install -m 755 runc.amd64 /usr/local/sbin/runc
+
+
+
+sudo mkdir -p /etc/containerd/
+containerd config default | sudo tee /etc/containerd/config.toml
+
+
+
+sudo sed -i 's/SystemdCgroup \= false/SystemdCgroup \= true/g' /etc/containerd/config.toml
+
+
+sudo systemctl restart containerd
+
+
+Using Docker Repository:::::::::::::
+
+
+sudo apt update
+sudo apt install -y ca-certificates curl gnupg lsb-release
+
+
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+
+
+
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list
+
+
+
+sudo apt update
+
+
+sudo apt install -y containerd.io
+
+
+sudo systemctl status containerd
+
+
+**********************************************************************kuberneties****************************************************************
+sudo apt-get update
+sudo apt-get install -y apt-transport-https ca-certificates curl
+
+sudo curl -fsSLo /usr/share/keyrings/kubernetes-archive-keyring.gpg https://packages.cloud.google.com/apt/doc/apt-key.gpg
+
+echo "deb [signed-by=/usr/share/keyrings/kubernetes-archive-keyring.gpg] https://apt.kubernetes.io/ kubernetes-xenial main" | sudo tee /etc/apt/sources.list.d/kubernetes.list
+
+sudo apt-get update
+sudo apt-get install -qy kubelet=1.24.0-00 kubectl=1.24.0-00 kubeadm=1.24.0-00
+
+#sudo apt-get install -y kubelet kubeadm kubectl
+
+sudo apt-mark hold kubelet kubeadm kubectl 
+
+sudo systemctl enable --now kubelet
+**********************************************************************
+
+then:/var/lib/kubelet/kubeadm-flags.env
+KUBELET_KUBEADM_ARGS="--network-plugin=cni --pod-infra-container-image=k8s.gcr.io/pause:3.2 --container-runtime=remote --container-runtime-endpoint=unix:///run/containerd/containerd.sock"
+systemctl start kubelet
+**********************************************************************
+sudo systemctl enable --now kubelet
+sudo systemctl daemon-reload
+
+sudo kubeadm config images pull
+is should be like:
+::::::::::::::::::::::::::::::::::::::::::::::::::
+  k8s.gcr.io/kube-controller-manager:v1.22.2 \
+  k8s.gcr.io/kube-scheduler:v1.22.2 \
+  k8s.gcr.io/kube-proxy:v1.22.2 \
+  k8s.gcr.io/pause:3.5 \
+  k8s.gcr.io/etcd:3.5.0-0 \
+  k8s.gcr.io/coredns:1.8.4; do
+:::::::::::::::::::::::::::::::::::::::::::::::::::
+<<<now  in  master and root sudo su - >>>
+
+echo 1 > /proc/sys/net/ipv4/ip_forward
+
+
+sudo kubeadm init  --apiserver-advertise-address=[localhostip]  --pod-network-cidr=10.244.0.0/16
+sudo kubeadm init  --apiserver-advertise-address=192.168.1.87  --pod-network-cidr=10.244.0.0/16 --ignore-preflight-errors=all
+**********************************************************************
+<<<now  in  reqular  user>>
+
+mkdir -p $HOME/.kube
+sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+sudo chown $(id -u):$(id -g) $HOME/.kube/config
+
+**********************************************************************
+
+FLUNNEL::::
+kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml
+::::::::::::::::::::::
+CALICO::::::::::::::::
+kubectl create -f https://projectcalico.docs.tigera.io/manifests/tigera-operator.yaml 
+kubectl create -f https://projectcalico.docs.tigera.io/manifests/custom-resources.yaml
+watch kubectl get pods -n calico-system
+kubectl taint nodes --all node-role.kubernetes.io/master-
+kubectl get nodes -o wide
+**********************************************************************
+kubectl get cs    ==>(component states)
+if it is not healthy::::::::::::::::::::::::::
+
+vi /etc/kubernetes/manifests/kube-controller-manager.yaml
+vi /etc/kubernetes/manifests/kube-scheduler.yaml
+then:::::
+#  - --port=0
+
+*********************************************************************
+kubeadm  token  create --print-join-command
+then  join other nodes.
+
+ mkdir -p $HOME/.kube
+ sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+ sudo chown $(id -u):$(id -g) $HOME/.kube/config
+
+Alternatively, if you are the root user, you can run:
+
+  export KUBECONFIG=/etc/kubernetes/admin.conf
+
+You should now deploy a pod network to the cluster.
+Run "kubectl apply -f [podnetwork].yaml" with one of the options listed at:
+  https://kubernetes.io/docs/concepts/cluster-administration/addons/
+
+Then you can join any number of worker nodes by running the following on each as root:
+
+kubeadm join 192.168.1.100:6443 --token agzi2b.taxwd2o9ho0815vn \
+        --discovery-token-ca-cert-hash sha256:963d7e9b81eb7271e0cce7921f6d30874e37b5e7f10442584e749540d1815ae0
+
+
+
+
+
+
+
